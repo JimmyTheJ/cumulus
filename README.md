@@ -42,7 +42,9 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 ./gradlew :composeApp:assembleDebug
 ```
 
-The APK is `composeApp/build/outputs/apk/debug/composeApp-debug.apk`.
+Each packaged APK takes the next version from `~/.local/state/apk-versions/cumulus/version.properties`, then advances it. The first build is `1.0.0-dev.1`, the next is `1.0.0-dev.2`, and so on. Set `cumulus.version` or `CUMULUS_VERSION` to pin a release and skip the counter.
+
+The APK is `composeApp/build/outputs/apk/debug/cumulus-v<version>-debug.apk`.
 
 Tests:
 

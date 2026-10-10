@@ -60,6 +60,9 @@ kotlin {
     }
 }
 
+val cumulusVersion = getVersionName(fallback = "1.0.0-dev.1")
+base.archivesName.set("cumulus-v$cumulusVersion")
+
 android {
     namespace = "app.cumulus"
     compileSdk = 37
@@ -69,8 +72,8 @@ android {
         applicationId = "app.cumulus"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionName = cumulusVersion
+        versionCode = getVersionCode(cumulusVersion)
     }
 
     buildTypes {
@@ -99,5 +102,39 @@ compose.desktop {
             packageVersion = "1.0.0"
             description = "Ad-free open-source weather"
         }
+    }
+}
+
+val flavoredApkPackage = Regex("""^package([A-Z][A-Za-z]+)(Debug|Release)$""")
+val plainApkPackage = Regex("""^package(Debug|Release)$""")
+
+tasks.configureEach {
+    val flavored = flavoredApkPackage.matchEntire(name)
+    val plain = plainApkPackage.matchEntire(name)
+    val flavor = flavored?.groupValues?.get(1)?.replaceFirstChar { it.lowercase() }.orEmpty()
+    val buildType = (flavored?.groupValues?.get(2) ?: plain?.groupValues?.get(1))?.lowercase() ?: return@configureEach
+    doLast {
+        val versionName = android.defaultConfig.versionName ?: return@doLast
+        val versionCode = android.defaultConfig.versionCode ?: return@doLast
+        val apkDir = if (flavor.isEmpty()) {
+            layout.buildDirectory.dir("outputs/apk/$buildType").get().asFile
+        } else {
+            layout.buildDirectory.dir("outputs/apk/$flavor/$buildType").get().asFile
+        }
+        val apkFile = apkDir.listFiles()
+            ?.filter { it.isFile && it.extension == "apk" }
+            ?.maxByOrNull { it.lastModified() }
+            ?: run {
+                logger.warn("Package task $name produced no APK in $apkDir; local version was not advanced")
+                return@doLast
+            }
+        DevBuildMetadata.recordApkBuild(
+            project = project,
+            versionName = versionName,
+            versionCode = versionCode,
+            apkFile = apkFile,
+            variant = buildType,
+            flavor = flavor.ifEmpty { "none" },
+        )
     }
 }
