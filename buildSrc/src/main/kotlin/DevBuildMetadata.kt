@@ -100,6 +100,21 @@ object DevBuildMetadata {
     }
 
     /**
+     * Shared download folder for sideloading. Keep the APK filename.
+     */
+    fun copyToSharedFolder(project: Project, apkFile: File): File? {
+        val destDir = File("/mnt/d/Users/jamus/Nextcloud/APKs")
+        if (!destDir.mkdirs() && !destDir.isDirectory) {
+            project.logger.warn("Could not create ${destDir.absolutePath}; APK was not copied")
+            return null
+        }
+        val dest = destDir.resolve(apkFile.name)
+        apkFile.copyTo(dest, overwrite = true)
+        project.logger.lifecycle("Copied APK to ${dest.absolutePath}")
+        return dest
+    }
+
+    /**
      * `1.0.0-dev.2` -> `1.0.0-dev.3`; appends `-dev.1` when no dev suffix exists.
      */
     fun bumpDevVersion(versionName: String): String {

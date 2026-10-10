@@ -1,0 +1,15 @@
+---
+description: Copy built Android APKs into the shared Nextcloud folder
+alwaysApply: true
+---
+
+# APK output copies
+
+After a Gradle build produces an APK under `composeApp/build/outputs/apk/`, copy each new APK into `/mnt/d/Users/jamus/Nextcloud/APKs`.
+
+- Keep the original filename.
+- Create the destination directory if it is missing.
+- Do this for debug and release builds, including emulator installs.
+- Copy only `.apk` files, not intermediate build outputs.
+
+The package task already copies the APK. If a build is produced some other way, copy it before finishing.

@@ -136,5 +136,6 @@ tasks.configureEach {
             variant = buildType,
             flavor = flavor.ifEmpty { "none" },
         )
+        DevBuildMetadata.copyToSharedFolder(project, apkFile)
     }
 }
