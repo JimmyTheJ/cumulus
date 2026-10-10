@@ -203,6 +203,14 @@ class CumulusApp(private val host: PlatformHost) {
         ensureWeather(place, force = true)
     }
 
+    fun refreshIfStale() {
+        val place = _state.value.selectedPlace ?: return
+        val resource = _state.value.weather[place.id]
+        if (resource?.loading == true) return
+        val fetched = resource?.value?.fetchedAtEpochMs
+        if (fetched == null || repo.forecastIsStale(fetched)) ensureWeather(place, force = fetched != null)
+    }
+
     fun useDeviceLocation() {
         scope.launch {
             _state.update { it.copy(locating = true, locationMessage = null) }

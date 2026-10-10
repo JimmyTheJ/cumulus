@@ -7,6 +7,8 @@ import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.Month
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 
 fun formatFixed(value: Double, digits: Int): String {
     if (digits < 0) return value.toString()
@@ -158,6 +160,27 @@ fun formatCoordinates(latitude: Double, longitude: Double): String {
         return "${formatFixed(abs(value), 2)}°$suffix"
     }
     return "${hem(latitude, "N", "S")}  ${hem(longitude, "E", "W")}"
+}
+
+fun modelFreshness(
+    observed: LocalDateTime?,
+    zone: TimeZone,
+    units: UnitPrefs,
+    fetchedAtMs: Long,
+    nowMs: Long,
+): String {
+    val fetchedMinutes = (nowMs - fetchedAtMs) / 60_000
+    val fetched = when {
+        fetchedMinutes < 1 -> "fetched just now"
+        fetchedMinutes < 60 -> "fetched $fetchedMinutes min ago"
+        fetchedMinutes < 24 * 60 -> "fetched ${fetchedMinutes / 60}h ago"
+        else -> "fetched ${fetchedMinutes / (24 * 60)}d ago"
+    }
+    if (observed == null) return "Model time unknown · $fetched"
+    val clock = formatClock(observed, units)
+    val ageMin = (nowMs - observed.toInstant(zone).toEpochMilliseconds()) / 60_000
+    val whenText = if (ageMin in 0..74) "This hour, $clock" else "As of $clock"
+    return "$whenText · $fetched"
 }
 
 fun relativeUpdated(epochMs: Long, nowMs: Long): String {

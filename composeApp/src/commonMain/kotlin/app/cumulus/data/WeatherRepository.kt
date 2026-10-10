@@ -152,6 +152,9 @@ class WeatherRepository(
 
     suspend fun cachedNormals(place: SavedPlace): ClimateNormals? = disk.readNormals(placeKey(place))
 
+    fun forecastIsStale(fetchedAtEpochMs: Long, nowMs: Long = Clock.System.now().toEpochMilliseconds()): Boolean =
+        nowMs - fetchedAtEpochMs >= FORECAST_TTL_MS
+
     private suspend fun cached(
         name: String,
         maxAgeMs: Long,
@@ -193,7 +196,7 @@ class WeatherRepository(
         const val RECENT_TTL_MS = 30 * 60 * 1000L
         const val HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000L
         const val CURRENT =
-            "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m,visibility"
+            "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m,visibility,uv_index"
         const val HOURLY =
             "temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_direction_10m,uv_index,is_day,visibility,pressure_msl"
         const val DAILY =

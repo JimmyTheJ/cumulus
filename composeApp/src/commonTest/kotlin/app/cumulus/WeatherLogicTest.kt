@@ -17,8 +17,11 @@ import app.cumulus.model.formatFixed
 import app.cumulus.model.formatPrecip
 import app.cumulus.model.formatTemperature
 import app.cumulus.model.formatTemperatureDelta
+import app.cumulus.model.healthSourceNote
 import app.cumulus.model.humidex
+import app.cumulus.model.liveUv
 import app.cumulus.model.mergeDays
+import app.cumulus.model.modelFreshness
 import app.cumulus.model.monthRange
 import app.cumulus.model.pollenReport
 import app.cumulus.model.summarize
@@ -32,6 +35,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 
 class WeatherLogicTest {
     @Test
@@ -125,13 +130,65 @@ class WeatherLogicTest {
     }
 
     @Test
-    fun parsesForecastAirAndSearch() {
-        val forecast = parseForecast(
-            """
-            {"timezone":"America/Toronto","current":{"time":"2026-10-10T13:45","temperature_2m":15.7,"apparent_temperature":12.6,"relative_humidity_2m":60,"dew_point_2m":8.0,"is_day":1,"precipitation":0,"weather_code":3,"cloud_cover":100,"pressure_msl":1027.7,"wind_speed_10m":20.1,"wind_direction_10m":91,"wind_gusts_10m":28.8,"visibility":21200},"hourly":{"time":["2026-10-10T13:00"],"temperature_2m":[15.2],"apparent_temperature":[12.0],"precipitation_probability":[10],"precipitation":[0],"weather_code":[3],"relative_humidity_2m":[60],"dew_point_2m":[8],"wind_speed_10m":[20],"wind_direction_10m":[90],"uv_index":[3.5],"is_day":[1],"visibility":[20000],"pressure_msl":[1027]},"daily":{"time":["2026-10-10"],"weather_code":[3],"temperature_2m_max":[16.0],"temperature_2m_min":[5.8],"apparent_temperature_max":[12.9],"apparent_temperature_min":[3.0],"sunrise":["2026-10-10T07:25"],"sunset":["2026-10-10T18:42"],"uv_index_max":[3.75],"precipitation_sum":[0],"precipitation_probability_max":[0],"wind_speed_10m_max":[20.6],"wind_gusts_10m_max":[36],"wind_direction_10m_dominant":[68]}}
-            """.trimIndent(),
+    fun liveUvUsesTheCurrentHourNotTheDailyPeak() {
+        val base = sampleForecast()
+        val fromHour = liveUv(base)
+        assertClose(3.5, fromHour.index)
+        assertEquals(LocalDateTime.parse("2026-10-10T13:00"), fromHour.observedAt)
+        assertClose(3.75, fromHour.peak)
+
+        val fromCurrent = liveUv(base.copy(current = base.current.copy(uvIndex = 2.1)))
+        assertClose(2.1, fromCurrent.index)
+        assertEquals(LocalDateTime.parse("2026-10-10T13:45"), fromCurrent.observedAt)
+        assertClose(3.75, fromCurrent.peak)
+
+        val zero = liveUv(base.copy(current = base.current.copy(uvIndex = 0.0)))
+        assertClose(0.0, zero.index)
+
+        val distant = base.copy(
+            hourly = base.hourly.map { it.copy(time = LocalDateTime.parse("2026-10-10T10:00")) },
+        )
+        val noLive = liveUv(distant)
+        assertNull(noLive.index)
+        assertClose(3.75, noLive.peak)
+
+        val air = parseAir("""{"current":{"time":"2026-10-10T12:00","us_aqi":28,"uv_index":1.2}}""")
+        assertEquals(LocalDateTime.parse("2026-10-10T12:00"), air.time)
+        val fromAir = liveUv(distant.copy(air = air))
+        assertClose(1.2, fromAir.index)
+        assertEquals(air.time, fromAir.observedAt)
+
+        val parsed = parseForecast(
+            forecastJson.replace(""""visibility":21200}""", """"visibility":21200,"uv_index":2.1}"""),
             1000L,
         )
+        assertClose(2.1, parsed.current.uvIndex)
+        assertClose(2.1, liveUv(parsed).index)
+
+        val zone = TimeZone.of("America/Toronto")
+        val observed = LocalDateTime.parse("2026-10-10T13:00")
+        val observedMs = observed.toInstant(zone).toEpochMilliseconds()
+        assertEquals(
+            "This hour, 1pm · fetched 5 min ago",
+            modelFreshness(observed, zone, UnitPrefs(), observedMs - 5 * 60_000, observedMs),
+        )
+        assertEquals(
+            "As of 1pm · fetched 3h ago",
+            modelFreshness(observed, zone, UnitPrefs(), observedMs, observedMs + 3 * 60 * 60_000),
+        )
+        val note = healthSourceNote(
+            base.copy(current = base.current.copy(uvIndex = 2.1), air = air),
+            zone,
+            UnitPrefs(),
+            observedMs,
+        )
+        assertTrue(note.contains("latest model hour, not a live sensor"))
+        assertTrue(note.contains("Air as of 12pm"))
+    }
+
+    @Test
+    fun parsesForecastAirAndSearch() {
+        val forecast = sampleForecast()
         assertEquals("America/Toronto", forecast.timezone)
         assertClose(15.7, forecast.current.temperatureC)
         assertEquals(true, forecast.current.isDay)
@@ -150,6 +207,13 @@ class WeatherLogicTest {
         )
         assertClose(22.9, history.first.single().tempMeanC)
     }
+
+    private fun sampleForecast() = parseForecast(forecastJson, 1000L)
+
+    private val forecastJson =
+        """
+        {"timezone":"America/Toronto","current":{"time":"2026-10-10T13:45","temperature_2m":15.7,"apparent_temperature":12.6,"relative_humidity_2m":60,"dew_point_2m":8.0,"is_day":1,"precipitation":0,"weather_code":3,"cloud_cover":100,"pressure_msl":1027.7,"wind_speed_10m":20.1,"wind_direction_10m":91,"wind_gusts_10m":28.8,"visibility":21200},"hourly":{"time":["2026-10-10T13:00"],"temperature_2m":[15.2],"apparent_temperature":[12.0],"precipitation_probability":[10],"precipitation":[0],"weather_code":[3],"relative_humidity_2m":[60],"dew_point_2m":[8],"wind_speed_10m":[20],"wind_direction_10m":[90],"uv_index":[3.5],"is_day":[1],"visibility":[20000],"pressure_msl":[1027]},"daily":{"time":["2026-10-10"],"weather_code":[3],"temperature_2m_max":[16.0],"temperature_2m_min":[5.8],"apparent_temperature_max":[12.9],"apparent_temperature_min":[3.0],"sunrise":["2026-10-10T07:25"],"sunset":["2026-10-10T18:42"],"uv_index_max":[3.75],"precipitation_sum":[0],"precipitation_probability_max":[0],"wind_speed_10m_max":[20.6],"wind_gusts_10m_max":[36],"wind_direction_10m_dominant":[68]}}
+        """.trimIndent()
 
     private fun day(date: String, max: Double, min: Double, mean: Double, precip: Double) = DayObservation(
         date = LocalDate.parse(date),

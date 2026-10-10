@@ -84,6 +84,7 @@ data class CurrentConditions(
     val windDirectionDeg: Double?,
     val windGustKmh: Double?,
     val visibilityM: Double?,
+    val uvIndex: Double? = null,
 )
 
 data class PollenReading(val name: String, val grainsPerCubicMetre: Double)
@@ -99,6 +100,7 @@ data class AirSnapshot(
     val carbonMonoxide: Double?,
     val uvIndex: Double?,
     val pollen: List<PollenReading>,
+    val time: LocalDateTime? = null,
 )
 
 data class PlaceWeather(

@@ -194,6 +194,7 @@ fun parseForecast(body: String, fetchedAtEpochMs: Long): PlaceWeather {
         windDirectionDeg = currentObj.num("wind_direction_10m"),
         windGustKmh = currentObj.num("wind_gusts_10m"),
         visibilityM = currentObj.num("visibility"),
+        uvIndex = currentObj.num("uv_index"),
     )
     return PlaceWeather(
         fetchedAtEpochMs = fetchedAtEpochMs,
@@ -236,6 +237,7 @@ fun parseAir(body: String): AirSnapshot {
         carbonMonoxide = num("carbon_monoxide"),
         uvIndex = num("uv_index"),
         pollen = pollen,
+        time = parseDateTime(current["time"]?.jsonPrimitive?.contentOrNull),
     )
 }
 

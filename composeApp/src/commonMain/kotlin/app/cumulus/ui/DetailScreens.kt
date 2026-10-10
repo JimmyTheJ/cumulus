@@ -134,7 +134,7 @@ fun DayScreen(
                     Metric("Gusts", formatWind(day.windGustKmh, units), sky, modifier = Modifier.weight(1f))
                 }
                 Row(Modifier.fillMaxWidth()) {
-                    Metric("UV", formatUv(day.uvIndexMax), sky, modifier = Modifier.weight(1f))
+                    Metric("Peak UV", formatUv(day.uvIndexMax), sky, modifier = Modifier.weight(1f))
                     Metric("Sunrise", day.sunrise?.let { formatClock(it, units) } ?: "—", sky, modifier = Modifier.weight(1f))
                 }
             }

@@ -1,7 +1,11 @@
 package app.cumulus.model
 
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.pow
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 
 fun weatherLabel(code: Int?): String = when (code) {
     null -> "Unknown"
@@ -83,6 +87,38 @@ fun peakHumidex(hours: List<HourPoint>): Double? =
         val dew = hour.dewPointC ?: return@mapNotNull null
         humidex(temp, dew)
     }.maxOrNull()?.takeIf { it >= 25.0 }
+
+data class LiveUv(val index: Double?, val observedAt: LocalDateTime?, val peak: Double?)
+
+/** Current-hour UV. The day's peak stays in [LiveUv.peak] and is never used as the live index. */
+fun liveUv(weather: PlaceWeather): LiveUv {
+    val today = weather.current.time.date
+    val peak = weather.daily.firstOrNull { it.date == today }?.uvIndexMax
+    weather.current.uvIndex?.let { return LiveUv(it, weather.current.time, peak) }
+    val hour = weather.hourly
+        .filter { it.uvIndex != null }
+        .minByOrNull { minuteGap(it.time, weather.current.time) }
+        ?.takeIf { minuteGap(it.time, weather.current.time) <= 90 }
+    if (hour?.uvIndex != null) return LiveUv(hour.uvIndex, hour.time, peak)
+    val air = weather.air
+    if (air?.uvIndex != null) return LiveUv(air.uvIndex, air.time, peak)
+    return LiveUv(null, null, peak)
+}
+
+fun healthSourceNote(weather: PlaceWeather, zone: TimeZone, units: UnitPrefs, nowMs: Long): String {
+    val uv = liveUv(weather)
+    val observed = uv.observedAt ?: weather.air?.time ?: weather.current.time
+    val note = modelFreshness(observed, zone, units, weather.fetchedAtEpochMs, nowMs)
+    val airTime = weather.air?.time
+    val airDiffers = airTime != null && uv.observedAt != null && minuteGap(airTime, uv.observedAt) > 30
+    val airBit = if (airDiffers) " Air as of ${formatClock(airTime, units)}." else ""
+    return "UV, air quality, and pollen are the latest model hour, not a live sensor. $note.$airBit"
+}
+
+private fun minuteGap(a: LocalDateTime, b: LocalDateTime): Int {
+    val days = a.date.toEpochDays() - b.date.toEpochDays()
+    return abs(days * 24 * 60 + (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute)).toInt()
+}
 
 data class IndexReading(val title: String, val value: String, val detail: String)
 

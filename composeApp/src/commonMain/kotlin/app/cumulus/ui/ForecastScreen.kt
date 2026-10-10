@@ -52,6 +52,8 @@ import app.cumulus.model.formatPrecip
 import app.cumulus.model.formatPressure
 import app.cumulus.model.formatTemperature
 import app.cumulus.model.formatUv
+import app.cumulus.model.healthSourceNote
+import app.cumulus.model.liveUv
 import app.cumulus.model.formatVisibility
 import app.cumulus.model.formatWind
 import app.cumulus.model.formatWindWithDirection
@@ -59,6 +61,7 @@ import app.cumulus.model.pollenReport
 import app.cumulus.model.relativeUpdated
 import app.cumulus.model.uvReading
 import app.cumulus.model.weatherLabel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.time.Clock
 import kotlinx.datetime.TimeZone
@@ -78,6 +81,12 @@ fun ForecastPager(app: CumulusApp, state: AppUiState, sky: Sky, modifier: Modifi
     }
     LaunchedEffect(pager) {
         snapshotFlow { pager.settledPage }.distinctUntilChanged().collect { app.selectIndex(it) }
+    }
+    LaunchedEffect(state.selectedIndex) {
+        while (true) {
+            app.refreshIfStale()
+            delay(60_000)
+        }
     }
     HorizontalPager(
         state = pager,
@@ -171,7 +180,7 @@ private fun ForecastPage(
             }
         }
         item { Spacer(Modifier.height(12.dp)) }
-        item { HealthCard(weather, sky) }
+        item { HealthCard(weather, units, sky) }
         item { Spacer(Modifier.height(12.dp)) }
         item { DetailsCard(weather, units, sky) }
         item {
@@ -277,18 +286,24 @@ private fun DayRow(
 }
 
 @Composable
-private fun HealthCard(weather: PlaceWeather, sky: Sky) {
+private fun HealthCard(weather: PlaceWeather, units: UnitPrefs, sky: Sky) {
     val air = weather.air
     val aqi = aqiReading(air)
-    val uv = uvReading(weather.daily.firstOrNull()?.uvIndexMax ?: air?.uvIndex)
+    val live = liveUv(weather)
+    val uv = uvReading(live.index)
+    val uvDetail = buildString {
+        if (live.index == null) append("No current reading") else append(uv.detail)
+        if (live.peak != null) append(" · peak ${formatUv(live.peak)}")
+    }
     val pollen = pollenReport(air?.pollen.orEmpty())
     val bugs = bugReport(weather.current.temperatureC, weather.current.humidity, weather.current.windKmh)
+    val zone = runCatching { TimeZone.of(weather.timezone) }.getOrDefault(TimeZone.UTC)
     GlassCard(sky) {
         SectionLabel("Health", sky)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth()) {
             Metric("Air quality", aqi?.detail ?: "—", sky, aqi?.let { "${it.scale} ${it.value}" }, Modifier.weight(1f))
-            Metric("UV", uv.detail, sky, uv.value, Modifier.weight(1f))
+            Metric("UV", if (live.index == null) "—" else uv.value, sky, uvDetail, Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth()) {
             Metric("Pollen", if (pollen.available) pollen.value else "Unavailable", sky, pollen.detail, Modifier.weight(1f))
@@ -296,7 +311,12 @@ private fun HealthCard(weather: PlaceWeather, sky: Sky) {
         }
         PollutantLine(air, sky)
         Text(
-            "Bug activity is estimated from temperature, humidity, and wind. Pollen covers Europe. These are environmental readings, not medical advice.",
+            healthSourceNote(weather, zone, units, Clock.System.now().toEpochMilliseconds()),
+            color = sky.muted,
+            fontSize = 12.sp,
+        )
+        Text(
+            "Bug activity is estimated from temperature, humidity, and wind. Pollen covers Europe. Not medical advice.",
             color = sky.muted,
             fontSize = 12.sp,
         )
