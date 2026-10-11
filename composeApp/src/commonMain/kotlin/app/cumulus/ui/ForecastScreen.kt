@@ -1,5 +1,6 @@
 package app.cumulus.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,7 +46,9 @@ import app.cumulus.model.UnitPrefs
 import app.cumulus.model.aqiReading
 import app.cumulus.model.bugReport
 import app.cumulus.model.feelReport
+import app.cumulus.model.HourStripEntry
 import app.cumulus.model.formatClock
+import app.cumulus.model.hourStrip
 import app.cumulus.model.formatDayHeading
 import app.cumulus.model.formatFixed
 import app.cumulus.model.formatPercent
@@ -137,7 +141,7 @@ private fun ForecastPage(
     val today = Clock.System.now().toLocalDateTime(zone).date
     val upcoming = weather.hourly.filter { hour ->
         hour.time.date > today || (hour.time.date == today && hour.time.hour >= weather.current.time.hour)
-    }.ifEmpty { weather.hourly }.take(24)
+    }.ifEmpty { weather.hourly }
     val days = weather.daily
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         item { Hero(place, weather, units, sky) }
@@ -154,7 +158,20 @@ private fun ForecastPage(
                     TextButton(onClick = app::openHourly) { Text("14 days", color = sky.accent) }
                 }
                 LazyRow {
-                    items(upcoming) { hour -> HourChip(hour, units, sky) }
+                    items(
+                        hourStrip(upcoming, today),
+                        key = { entry ->
+                            when (entry) {
+                                is HourStripEntry.DayMark -> "day-${entry.date}"
+                                is HourStripEntry.Hour -> entry.point.time.toString()
+                            }
+                        },
+                    ) { entry ->
+                        when (entry) {
+                            is HourStripEntry.DayMark -> HourDayBreak(entry.label, sky)
+                            is HourStripEntry.Hour -> HourChip(entry.point, units, sky)
+                        }
+                    }
                 }
             }
         }
@@ -213,6 +230,21 @@ private fun Hero(place: SavedPlace, weather: PlaceWeather, units: UnitPrefs, sky
         }
         Spacer(Modifier.height(8.dp))
         Text(relativeUpdated(weather.fetchedAtEpochMs, Clock.System.now().toEpochMilliseconds()), color = sky.muted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun HourDayBreak(label: String, sky: Sky) {
+    Row(Modifier.padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(1.dp).height(88.dp).background(sky.onSky.copy(alpha = 0.35f)))
+        Text(
+            label,
+            Modifier.padding(start = 10.dp).widthIn(max = 76.dp),
+            color = sky.accent,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            lineHeight = 16.sp,
+        )
     }
 }
 

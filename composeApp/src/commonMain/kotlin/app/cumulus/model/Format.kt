@@ -149,6 +149,26 @@ fun formatDayHeading(date: LocalDate, today: LocalDate): String = when {
     else -> "${dayShort(date.dayOfWeek)} ${date.day}"
 }
 
+sealed interface HourStripEntry {
+    data class DayMark(val date: LocalDate, val label: String) : HourStripEntry
+    data class Hour(val point: HourPoint) : HourStripEntry
+}
+
+/** Hours in order, with a day label before every day after the first. */
+fun hourStrip(hours: List<HourPoint>, today: LocalDate): List<HourStripEntry> {
+    var seen = false
+    var previous: LocalDate? = null
+    return buildList {
+        for (hour in hours) {
+            val date = hour.time.date
+            if (seen && date != previous) add(HourStripEntry.DayMark(date, formatDayHeading(date, today)))
+            seen = true
+            previous = date
+            add(HourStripEntry.Hour(hour))
+        }
+    }
+}
+
 fun formatFullDate(date: LocalDate): String =
     "${dayShort(date.dayOfWeek)} ${date.day} ${monthLong(date.month)} ${date.year}"
 

@@ -17,7 +17,10 @@ import app.cumulus.model.formatFixed
 import app.cumulus.model.formatPrecip
 import app.cumulus.model.formatTemperature
 import app.cumulus.model.formatTemperatureDelta
+import app.cumulus.model.HourPoint
+import app.cumulus.model.HourStripEntry
 import app.cumulus.model.healthSourceNote
+import app.cumulus.model.hourStrip
 import app.cumulus.model.humidex
 import app.cumulus.model.liveUv
 import app.cumulus.model.mergeDays
@@ -113,6 +116,28 @@ class WeatherLogicTest {
         assertEquals(setOf(0, 6, 12, 18), shownHourMarks((0..23).toList()))
         assertEquals(29, monthLength(2024, Month.FEBRUARY))
         assertEquals(28, monthLength(2023, Month.FEBRUARY))
+    }
+
+    @Test
+    fun hourStripMarksDaysAfterTheFirst() {
+        val today = LocalDate.parse("2026-10-10")
+        val strip = hourStrip(
+            listOf(
+                hour("2026-10-10T22:00"),
+                hour("2026-10-10T23:00"),
+                hour("2026-10-11T00:00"),
+                hour("2026-10-12T00:00"),
+            ),
+            today,
+        )
+        assertTrue(strip[0] is HourStripEntry.Hour)
+        assertTrue(strip[1] is HourStripEntry.Hour)
+        val tomorrow = strip[2] as HourStripEntry.DayMark
+        assertEquals("Tomorrow", tomorrow.label)
+        assertTrue(strip[3] is HourStripEntry.Hour)
+        val monday = strip[4] as HourStripEntry.DayMark
+        assertEquals("Mon 12", monday.label)
+        assertEquals(6, strip.size)
     }
 
     @Test
@@ -225,6 +250,23 @@ class WeatherLogicTest {
         )
         assertClose(22.9, history.first.single().tempMeanC)
     }
+
+    private fun hour(time: String) = HourPoint(
+        time = LocalDateTime.parse(time),
+        temperatureC = 10.0,
+        apparentC = null,
+        precipProbability = null,
+        precipMm = null,
+        weatherCode = null,
+        humidity = null,
+        dewPointC = null,
+        windKmh = null,
+        windDirectionDeg = null,
+        uvIndex = null,
+        isDay = true,
+        visibilityM = null,
+        pressureHpa = null,
+    )
 
     private fun sampleForecast() = parseForecast(forecastJson, 1000L)
 

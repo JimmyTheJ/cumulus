@@ -1,5 +1,7 @@
 package app.cumulus.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.cumulus.model.ClimateNormals
@@ -51,9 +54,19 @@ fun HourlyScreen(weather: PlaceWeather?, units: UnitPrefs, sky: Sky, modifier: M
             Text("Temperatures through the next 14 days.", color = sky.muted, fontSize = 14.sp)
             Spacer(Modifier.height(8.dp))
         }
-        grouped.forEach { (date, hours) ->
-            item(key = "h-$date") {
-                Text(formatDayHeading(date, today), color = sky.accent, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+        grouped.entries.forEachIndexed { index, (date, hours) ->
+            if (index > 0) {
+                item(key = "h-$date") {
+                    Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp)) {
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(sky.onSky.copy(alpha = 0.28f)))
+                        Text(
+                            formatDayHeading(date, today),
+                            Modifier.padding(top = 10.dp),
+                            color = sky.accent,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
             items(hours, key = { "${it.time}" }) { hour -> HourLine(hour, units, sky) }
         }
