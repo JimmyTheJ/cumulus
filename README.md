@@ -9,7 +9,7 @@ It is not affiliated with The Weather Network or Pelmorex.
 - Current conditions, including feels like, wind chill, and humidex
 - High and low for each day
 - The next 24 hours on the forecast, and every hour of the 14-day forecast
-- A 7-day list, with a switch to all 14 days
+- A 14-day list of highs and lows
 - Wind, gusts, humidity, dew point, pressure, visibility, cloud cover, precipitation, sunrise, and sunset
 - Air quality, UV, pollen, and an estimated bug-activity index
 - Several saved places, including this device's location on Android

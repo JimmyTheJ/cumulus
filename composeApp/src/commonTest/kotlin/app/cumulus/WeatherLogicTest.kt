@@ -22,7 +22,11 @@ import app.cumulus.model.humidex
 import app.cumulus.model.liveUv
 import app.cumulus.model.mergeDays
 import app.cumulus.model.modelFreshness
+import app.cumulus.model.monthLength
 import app.cumulus.model.monthRange
+import app.cumulus.model.niceTicks
+import app.cumulus.model.shownDayNumbers
+import app.cumulus.model.shownHourMarks
 import app.cumulus.model.pollenReport
 import app.cumulus.model.summarize
 import app.cumulus.model.weatherLabel
@@ -35,6 +39,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.Month
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 
@@ -95,6 +100,19 @@ class WeatherLogicTest {
         val merged = mergeDays(newer, archive)
         assertEquals(2, merged.size)
         assertClose(3.0, merged.first().tempMaxC)
+    }
+
+    @Test
+    fun historyScaleAndDayLabelsStayReadable() {
+        assertEquals(listOf(5.0, 10.0, 15.0, 20.0, 25.0), niceTicks(6.0, 25.0))
+        assertEquals(listOf(-40.0, -20.0, 0.0, 20.0, 40.0), niceTicks(-25.0, 37.0))
+        assertEquals(setOf(1, 10, 20, 30), shownDayNumbers((1..31).toList()))
+        assertEquals(setOf(1, 10, 20), shownDayNumbers((1..28).toList()))
+        assertEquals(setOf(1, 10), shownDayNumbers((1..12).toList()))
+        assertEquals(setOf(5, 8), shownDayNumbers(listOf(5, 6, 7, 8)))
+        assertEquals(setOf(0, 6, 12, 18), shownHourMarks((0..23).toList()))
+        assertEquals(29, monthLength(2024, Month.FEBRUARY))
+        assertEquals(28, monthLength(2023, Month.FEBRUARY))
     }
 
     @Test

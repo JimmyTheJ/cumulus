@@ -4,8 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +25,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,15 +38,23 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import app.cumulus.model.TemperatureUnit
 import app.cumulus.model.UnitPrefs
+import app.cumulus.model.celsiusTo
+import app.cumulus.model.formatFixed
 import app.cumulus.model.formatTemperature
+import app.cumulus.model.niceTicks
 
 @Composable
 fun GlassCard(
@@ -135,53 +150,215 @@ fun TempRangeBar(
     }
 }
 
-data class RangePoint(val label: String, val low: Double?, val high: Double?)
+data class RangePoint(
+    val label: String,
+    val showLabel: Boolean,
+    val low: Double?,
+    val high: Double?,
+    val detail: String,
+)
+
+data class ValuePoint(
+    val label: String,
+    val showLabel: Boolean,
+    val value: Double?,
+    val detail: String,
+)
 
 @Composable
 fun RangeChart(points: List<RangePoint>, sky: Sky, units: UnitPrefs, modifier: Modifier = Modifier) {
     val lows = points.mapNotNull { it.low }
     val highs = points.mapNotNull { it.high }
     if (lows.isEmpty() || highs.isEmpty()) return
-    val min = lows.min()
-    val max = highs.max()
-    Column(modifier) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTemperature(max, units), color = sky.high, fontSize = 11.sp, style = NumberStyle)
-            Text(formatTemperature(min, units), color = sky.low, fontSize = 11.sp, style = NumberStyle)
-        }
-        Spacer(Modifier.height(6.dp))
-        Canvas(Modifier.fillMaxWidth().height(132.dp)) {
-            val span = (max - min).takeIf { it > 0.05 } ?: 1.0
+    val ticks = niceTicks(
+        celsiusTo(lows.min(), units.temperature),
+        celsiusTo(highs.max(), units.temperature),
+    )
+    ChartFrame(
+        pointCount = points.size,
+        ticks = ticks,
+        labels = points.mapIndexedNotNull { index, point -> if (point.showLabel) index to point.label else null },
+        idle = "Press a column to read its high and low",
+        detail = { points[it].detail },
+        sky = sky,
+        units = units,
+        modifier = modifier,
+    ) { selected, y ->
+        points.forEachIndexed { index, point ->
+            val low = point.low ?: return@forEachIndexed
+            val high = point.high ?: return@forEachIndexed
             val gap = size.width / points.size.coerceAtLeast(1)
-            points.forEachIndexed { index, point ->
-                val low = point.low ?: return@forEachIndexed
-                val high = point.high ?: return@forEachIndexed
-                val x = gap * index + gap / 2f
-                fun y(value: Double) = (size.height * (1.0 - (value - min) / span)).toFloat()
-                drawLine(
-                    brush = Brush.verticalGradient(listOf(sky.high, sky.low)),
-                    start = Offset(x, y(high)),
-                    end = Offset(x, y(low)),
-                    strokeWidth = (gap * 0.42f).coerceIn(3f, 16f),
-                    cap = StrokeCap.Round,
+            val x = gap * index + gap / 2f
+            val top = y(celsiusTo(maxOf(low, high), units.temperature))
+            val bottom = y(celsiusTo(minOf(low, high), units.temperature))
+            if (index == selected) {
+                drawRect(
+                    sky.accent.copy(alpha = 0.16f),
+                    topLeft = Offset(gap * index, 0f),
+                    size = Size(gap, size.height),
                 )
             }
+            drawLine(
+                brush = Brush.verticalGradient(listOf(sky.high, sky.low)),
+                start = Offset(x, top),
+                end = Offset(x, bottom),
+                strokeWidth = (gap * 0.46f).coerceIn(4f, 14f),
+                cap = StrokeCap.Round,
+            )
         }
-        val step = if (points.size <= 12) 1 else ((points.size - 1) / 6).coerceAtLeast(1)
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            points.forEachIndexed { index, point ->
-                val show = index == points.lastIndex || index % step == 0
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+    }
+}
+
+@Composable
+fun ValueChart(points: List<ValuePoint>, sky: Sky, units: UnitPrefs, modifier: Modifier = Modifier) {
+    val values = points.mapNotNull { it.value }
+    if (values.isEmpty()) return
+    val ticks = niceTicks(
+        celsiusTo(values.min(), units.temperature),
+        celsiusTo(values.max(), units.temperature),
+    )
+    ChartFrame(
+        pointCount = points.size,
+        ticks = ticks,
+        labels = points.mapIndexedNotNull { index, point -> if (point.showLabel) index to point.label else null },
+        idle = "Press an hour to read the temperature",
+        detail = { points[it].detail },
+        sky = sky,
+        units = units,
+        modifier = modifier,
+    ) { selected, y ->
+        val gap = size.width / points.size.coerceAtLeast(1)
+        val present = points.mapIndexedNotNull { index, point ->
+            point.value?.let { index to celsiusTo(it, units.temperature) }
+        }
+        for (index in 0 until present.lastIndex) {
+            val (leftIndex, left) = present[index]
+            val (rightIndex, right) = present[index + 1]
+            drawLine(
+                sky.accent,
+                Offset(gap * leftIndex + gap / 2f, y(left)),
+                Offset(gap * rightIndex + gap / 2f, y(right)),
+                strokeWidth = 3f,
+                cap = StrokeCap.Round,
+            )
+        }
+        val chosen = selected ?: return@ChartFrame
+        val value = points.getOrNull(chosen)?.value ?: return@ChartFrame
+        val x = gap * chosen + gap / 2f
+        drawRect(
+            sky.accent.copy(alpha = 0.16f),
+            topLeft = Offset(gap * chosen, 0f),
+            size = Size(gap, size.height),
+        )
+        drawCircle(sky.onSky, radius = 5.5f, center = Offset(x, y(celsiusTo(value, units.temperature))))
+        drawCircle(sky.accent, radius = 3.5f, center = Offset(x, y(celsiusTo(value, units.temperature))))
+    }
+}
+
+@Composable
+private fun ChartFrame(
+    pointCount: Int,
+    ticks: List<Double>,
+    labels: List<Pair<Int, String>>,
+    idle: String,
+    detail: (Int) -> String,
+    sky: Sky,
+    units: UnitPrefs,
+    modifier: Modifier = Modifier,
+    draw: DrawScope.(selected: Int?, y: (Double) -> Float) -> Unit,
+) {
+    var selected by remember(pointCount, ticks, labels) { mutableStateOf<Int?>(null) }
+    val scaleMin = ticks.first()
+    val scaleMax = ticks.last()
+    val readout = selected?.let(detail) ?: idle
+    Column(modifier) {
+        Text(
+            readout,
+            color = if (selected == null) sky.muted else sky.onSky,
+            fontSize = if (selected == null) 12.sp else 15.sp,
+            style = NumberStyle,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().height(156.dp)) {
+            BoxWithConstraints(Modifier.width(46.dp).fillMaxHeight()) {
+                val span = (scaleMax - scaleMin).takeIf { it > 0.05 } ?: 1.0
+                ticks.forEach { tick ->
+                    val fraction = ((scaleMax - tick) / span).toFloat().coerceIn(0f, 1f)
+                    val y = plotInset + (maxHeight - plotInset * 2) * fraction - 7.dp
                     Text(
-                        if (show) point.label else "",
+                        formatTick(tick, units),
+                        Modifier.align(Alignment.TopEnd).offset(y = y).padding(end = 6.dp),
                         color = sky.muted,
                         fontSize = 10.sp,
+                        style = NumberStyle,
+                        textAlign = TextAlign.End,
+                    )
+                }
+            }
+            Canvas(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(pointCount) {
+                        detectTapGestures(
+                            onLongPress = { offset ->
+                                selected = chartIndex(offset.x, size.width.toFloat(), pointCount)
+                            },
+                            onTap = { offset ->
+                                selected = chartIndex(offset.x, size.width.toFloat(), pointCount)
+                            },
+                        )
+                    },
+            ) {
+                val span = (scaleMax - scaleMin).takeIf { it > 0.05 } ?: 1.0
+                val top = plotInset.toPx()
+                val plotHeight = (size.height - top * 2).coerceAtLeast(1f)
+                fun y(display: Double): Float {
+                    val fraction = ((scaleMax - display) / span).toFloat().coerceIn(0f, 1f)
+                    return top + plotHeight * fraction
+                }
+                ticks.forEach { tick ->
+                    val line = y(tick)
+                    drawLine(
+                        sky.onSky.copy(alpha = 0.16f),
+                        Offset(0f, line),
+                        Offset(size.width, line),
+                        strokeWidth = 1f,
+                    )
+                }
+                draw(selected, ::y)
+            }
+        }
+        Row {
+            Spacer(Modifier.width(46.dp))
+            BoxWithConstraints(Modifier.weight(1f).height(18.dp)) {
+                labels.forEach { (index, text) ->
+                    val x = maxWidth * (index + 0.5f) / pointCount.coerceAtLeast(1)
+                    Text(
+                        text,
+                        Modifier.offset(x = x - 18.dp).width(36.dp),
+                        color = sky.muted,
+                        fontSize = 10.sp,
+                        textAlign = TextAlign.Center,
                         maxLines = 1,
+                        overflow = TextOverflow.Clip,
                     )
                 }
             }
         }
     }
+}
+
+private val plotInset = 12.dp
+
+private fun chartIndex(x: Float, width: Float, count: Int): Int {
+    if (count <= 0 || width <= 0f) return 0
+    return ((x / width) * count).toInt().coerceIn(0, count - 1)
+}
+
+private fun formatTick(display: Double, units: UnitPrefs): String {
+    val suffix = if (units.temperature == TemperatureUnit.Fahrenheit) "°F" else "°"
+    return "${formatFixed(display, 0)}$suffix"
 }
 
 @Composable

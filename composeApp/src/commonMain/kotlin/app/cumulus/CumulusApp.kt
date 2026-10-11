@@ -12,6 +12,7 @@ import app.cumulus.model.Screen
 import app.cumulus.model.UnitPrefs
 import app.cumulus.model.WeatherResource
 import app.cumulus.model.clamp
+import app.cumulus.model.earliestHistory
 import app.cumulus.model.formatCoordinates
 import app.cumulus.model.monthRange
 import app.cumulus.model.shiftAnchor
@@ -92,10 +93,6 @@ class CumulusApp(private val host: PlatformHost) {
         _state.update { state ->
             if (state.stack.size > 1) state.copy(stack = state.stack.dropLast(1)) else state
         }
-    }
-
-    fun setDailyDays(days: Int) {
-        _state.update { it.copy(dailyDays = days.coerceIn(7, 14)) }
     }
 
     fun setUnits(units: UnitPrefs) {
@@ -254,7 +251,15 @@ class CumulusApp(private val host: PlatformHost) {
         val place = _state.value.selectedPlace ?: return
         val today = today(place)
         val current = _state.value.history.anchor ?: today
-        val next = shiftAnchor(current, _state.value.history.span, delta).clamp(EARLIEST, today)
+        val next = shiftAnchor(current, _state.value.history.span, delta).clamp(earliestHistory, today)
+        _state.update { it.copy(history = it.history.copy(anchor = next)) }
+        reloadHistory()
+    }
+
+    fun jumpHistory(date: LocalDate) {
+        val place = _state.value.selectedPlace ?: return
+        val today = today(place)
+        val next = date.clamp(earliestHistory, today)
         _state.update { it.copy(history = it.history.copy(anchor = next)) }
         reloadHistory()
     }
@@ -335,15 +340,15 @@ class CumulusApp(private val host: PlatformHost) {
     private fun reloadHistory() {
         val place = _state.value.selectedPlace ?: return
         val today = today(place)
-        val anchor = (_state.value.history.anchor ?: today.minus(DatePeriod(days = 5))).clamp(EARLIEST, today)
+        val anchor = (_state.value.history.anchor ?: today.minus(DatePeriod(days = 5))).clamp(earliestHistory, today)
         val span = _state.value.history.span
         val (rawStart, rawEnd) = when (span) {
             HistorySpan.Day -> anchor to anchor
             HistorySpan.Month -> monthRange(anchor)
             HistorySpan.Year -> yearRange(anchor.year)
         }
-        val end = rawEnd.clamp(EARLIEST, today)
-        val start = rawStart.clamp(EARLIEST, end)
+        val end = rawEnd.clamp(earliestHistory, today)
+        val start = rawStart.clamp(earliestHistory, end)
         val request = HistoryRequest(place.id, span, start, end)
         historyJob?.cancel()
         historyJob = scope.launch {
@@ -406,7 +411,4 @@ class CumulusApp(private val host: PlatformHost) {
     private fun near(a: SavedPlace, b: SavedPlace): Boolean =
         abs(a.latitude - b.latitude) < 0.01 && abs(a.longitude - b.longitude) < 0.01
 
-    private companion object {
-        val EARLIEST = LocalDate(1940, 1, 1)
-    }
 }

@@ -1,34 +1,54 @@
 package app.cumulus.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import app.cumulus.CumulusApp
 import app.cumulus.model.AppUiState
 import app.cumulus.model.ClimateNormals
 import app.cumulus.model.DayObservation
 import app.cumulus.model.HistorySpan
+import app.cumulus.model.HourPoint
 import app.cumulus.model.PeriodStats
 import app.cumulus.model.Screen
 import app.cumulus.model.UnitPrefs
+import app.cumulus.model.earliestHistory
 import app.cumulus.model.formatClock
 import app.cumulus.model.formatFullDate
 import app.cumulus.model.formatMonthYear
@@ -36,11 +56,19 @@ import app.cumulus.model.formatPrecip
 import app.cumulus.model.formatTemperature
 import app.cumulus.model.formatTemperatureDelta
 import app.cumulus.model.formatWind
+import app.cumulus.model.monthLength
 import app.cumulus.model.monthLong
 import app.cumulus.model.monthShort
+import app.cumulus.model.shownDayNumbers
+import app.cumulus.model.shownHourMarks
 import app.cumulus.model.summarize
 import app.cumulus.model.weatherLabel
+import androidx.compose.foundation.lazy.LazyColumn
+import kotlin.time.Clock
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.Month
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 @Composable
 fun HistoryScreen(app: CumulusApp, state: AppUiState, sky: Sky, modifier: Modifier = Modifier) {
@@ -55,6 +83,22 @@ fun HistoryScreen(app: CumulusApp, state: AppUiState, sky: Sky, modifier: Modifi
     val history = state.history
     val normals = state.normals[place.id]
     val stats = summarize(history.days)
+    val zone = runCatching { TimeZone.of(place.timezone) }.getOrDefault(TimeZone.UTC)
+    val today = Clock.System.now().toLocalDateTime(zone).date
+    var choosingDate by remember { mutableStateOf(false) }
+    if (choosingDate) {
+        HistoryJumpDialog(
+            span = history.span,
+            anchor = history.anchor ?: today,
+            today = today,
+            sky = sky,
+            onDismiss = { choosingDate = false },
+            onConfirm = { date ->
+                choosingDate = false
+                app.jumpHistory(date)
+            },
+        )
+    }
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         item {
             Spacer(Modifier.height(18.dp))
@@ -70,7 +114,10 @@ fun HistoryScreen(app: CumulusApp, state: AppUiState, sky: Sky, modifier: Modifi
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconButton(sky, onClick = { app.shiftHistory(-1) }) { Chevron(sky, left = true) }
-                Text(anchorLabel(history.span, history.anchor), color = sky.onSky, fontSize = 18.sp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable { choosingDate = true }) {
+                    Text(anchorLabel(history.span, history.anchor), color = sky.onSky, fontSize = 18.sp, textAlign = TextAlign.Center)
+                    Text("Choose a date", color = sky.accent, fontSize = 12.sp)
+                }
                 IconButton(sky, onClick = { app.shiftHistory(1) }) { Chevron(sky, left = false) }
             }
             if (history.loading) {
@@ -105,26 +152,13 @@ fun HistoryScreen(app: CumulusApp, state: AppUiState, sky: Sky, modifier: Modifi
             }
             item { Spacer(Modifier.height(12.dp)) }
             item {
-                GlassCard(sky) {
-                    SectionLabel(if (history.span == HistorySpan.Year) "Monthly range" else "Daily range", sky)
-                    Spacer(Modifier.height(8.dp))
-                    RangeChart(chartPoints(history.span, history.days), sky, state.units)
-                }
-            }
-            if (history.span == HistorySpan.Day && history.hours.isNotEmpty()) {
-                item { Spacer(Modifier.height(12.dp)) }
-                item {
+                if (history.span == HistorySpan.Day) {
+                    HourlyHistoryCard(history.hours, state.units, sky)
+                } else {
                     GlassCard(sky) {
-                        SectionLabel("Hourly", sky)
-                        LineChart(history.hours.map { it.temperatureC }, sky)
-                        LazyRow {
-                            items(history.hours) { hour ->
-                                Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(formatClock(hour.time, state.units), color = sky.muted, fontSize = 11.sp)
-                                    Text(formatTemperature(hour.temperatureC, state.units), color = sky.onSky, style = NumberStyle, fontSize = 14.sp)
-                                }
-                            }
-                        }
+                        SectionLabel(if (history.span == HistorySpan.Year) "Each month" else "Each day", sky)
+                        Spacer(Modifier.height(8.dp))
+                        RangeChart(rangePoints(history.span, history.days, state.units), sky, state.units)
                     }
                 }
             }
@@ -264,12 +298,177 @@ private fun CompareLine(label: String, actual: Double?, typical: Double?, units:
     }
 }
 
-private fun chartPoints(span: HistorySpan, days: List<DayObservation>): List<RangePoint> = when (span) {
+@Composable
+private fun HourlyHistoryCard(hours: List<HourPoint>, units: UnitPrefs, sky: Sky) {
+    GlassCard(sky) {
+        SectionLabel("Hourly", sky)
+        Spacer(Modifier.height(8.dp))
+        if (hours.isEmpty()) {
+            Text("Hourly temperatures aren't in the archive for this day.", color = sky.muted, fontSize = 13.sp)
+        } else {
+            ValueChart(hourPoints(hours, units), sky, units)
+        }
+    }
+}
+
+private fun rangePoints(span: HistorySpan, days: List<DayObservation>, units: UnitPrefs): List<RangePoint> = when (span) {
     HistorySpan.Year -> days.groupBy { it.date.month }.toSortedMap().map { (month, samples) ->
         val stats = summarize(samples)
-        RangePoint(monthShort(month), stats.lowest, stats.highest)
+        RangePoint(
+            label = monthShort(month),
+            showLabel = true,
+            low = stats.lowest,
+            high = stats.highest,
+            detail = "${monthLong(month)} · highest ${formatTemperature(stats.highest, units)} · lowest ${formatTemperature(stats.lowest, units)}",
+        )
     }
-    else -> days.map { RangePoint(it.date.day.toString(), it.tempMinC, it.tempMaxC) }
+    else -> {
+        val marks = shownDayNumbers(days.map { it.date.day })
+        days.map { day ->
+            RangePoint(
+                label = day.date.day.toString(),
+                showLabel = day.date.day in marks,
+                low = day.tempMinC,
+                high = day.tempMaxC,
+                detail = "${formatFullDate(day.date)} · high ${formatTemperature(day.tempMaxC, units)} · low ${formatTemperature(day.tempMinC, units)}",
+            )
+        }
+    }
+}
+
+private fun hourPoints(hours: List<HourPoint>, units: UnitPrefs): List<ValuePoint> {
+    val marks = shownHourMarks(hours.map { it.time.hour })
+    return hours.map { hour ->
+        ValuePoint(
+            label = formatClock(hour.time, units),
+            showLabel = hour.time.minute == 0 && hour.time.hour in marks,
+            value = hour.temperatureC,
+            detail = "${formatClock(hour.time, units)} · ${formatTemperature(hour.temperatureC, units)}",
+        )
+    }
+}
+
+@Composable
+private fun HistoryJumpDialog(
+    span: HistorySpan,
+    anchor: LocalDate,
+    today: LocalDate,
+    sky: Sky,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate) -> Unit,
+) {
+    var yearText by remember(anchor) { mutableStateOf(anchor.year.toString()) }
+    var month by remember(anchor) { mutableStateOf(anchor.month) }
+    var day by remember(anchor) { mutableStateOf(anchor.day) }
+    var message by remember(anchor) { mutableStateOf<String?>(null) }
+    val surface = if (sky.light) Color.White else Color(0xFF1B2836)
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .widthIn(max = 420.dp)
+                .heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(surface)
+                .border(1.dp, sky.border, RoundedCornerShape(22.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        ) {
+            Text(
+                when (span) {
+                    HistorySpan.Day -> "Go to a day"
+                    HistorySpan.Month -> "Go to a month"
+                    HistorySpan.Year -> "Go to a year"
+                },
+                color = sky.onSky,
+                style = TitleStyle,
+            )
+            Text(
+                when (span) {
+                    HistorySpan.Day -> "Type the year, then pick the month and day."
+                    HistorySpan.Month -> "Type the year, then pick the month."
+                    HistorySpan.Year -> "Type any year back to ${earliestHistory.year}."
+                },
+                color = sky.muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = yearText,
+                onValueChange = { yearText = it.filter(Char::isDigit).take(4) },
+                label = { Text("Year") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(140.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = sky.onSky,
+                    unfocusedTextColor = sky.onSky,
+                    focusedBorderColor = sky.accent,
+                    unfocusedBorderColor = sky.muted,
+                    focusedLabelColor = sky.accent,
+                    unfocusedLabelColor = sky.muted,
+                    cursorColor = sky.accent,
+                ),
+            )
+            if (span != HistorySpan.Year) {
+                Spacer(Modifier.height(12.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Month.entries.forEach { entry ->
+                        JumpChip(monthShort(entry), entry == month, sky) { month = entry }
+                    }
+                }
+            }
+            if (span == HistorySpan.Day) {
+                val length = monthLength(yearText.toIntOrNull() ?: anchor.year, month)
+                Spacer(Modifier.height(12.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val selectedDay = day.coerceIn(1, length)
+                    for (number in 1..length) {
+                        JumpChip(number.toString(), number == selectedDay, sky) { day = number }
+                    }
+                }
+            }
+            message?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = sky.accent, fontSize = 13.sp)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Cancel", color = sky.muted) }
+                TextButton(
+                    onClick = {
+                        val year = yearText.toIntOrNull()
+                        if (year == null || year !in earliestHistory.year..today.year) {
+                            message = "Enter a year from ${earliestHistory.year} to ${today.year}."
+                            return@TextButton
+                        }
+                        val picked = when (span) {
+                            HistorySpan.Year -> LocalDate(year, 1, 1)
+                            HistorySpan.Month -> LocalDate(year, month, 1)
+                            HistorySpan.Day -> LocalDate(year, month, day.coerceIn(1, monthLength(year, month)))
+                        }
+                        if (picked > today) {
+                            message = "That date is still ahead."
+                            return@TextButton
+                        }
+                        onConfirm(picked)
+                    },
+                ) { Text("Show", color = sky.accent) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JumpChip(label: String, active: Boolean, sky: Sky, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (active) sky.accent else sky.onSky.copy(alpha = 0.08f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (active) Color(0xFF1B1408) else sky.onSky, fontSize = 13.sp)
+    }
 }
 
 private fun anchorLabel(span: HistorySpan, anchor: kotlinx.datetime.LocalDate?): String {

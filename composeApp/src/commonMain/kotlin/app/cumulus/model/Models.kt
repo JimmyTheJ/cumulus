@@ -205,7 +205,6 @@ data class AppUiState(
     val units: UnitPrefs = UnitPrefs(),
     val stack: List<Screen> = listOf(Screen.Forecast),
     val weather: Map<String, WeatherResource> = emptyMap(),
-    val dailyDays: Int = 7,
     val searchQuery: String = "",
     val searchResults: List<SavedPlace> = emptyList(),
     val searching: Boolean = false,

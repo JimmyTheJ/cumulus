@@ -1,9 +1,18 @@
 package app.cumulus.model
 
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.round
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.Month
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
+
+/** Open-Meteo archive days before this are not requested. */
+val earliestHistory: LocalDate = LocalDate(1940, 1, 1)
 
 fun meanOf(values: List<Double>): Double? = if (values.isEmpty()) null else values.sum() / values.size
 
@@ -95,4 +104,67 @@ fun shiftAnchor(anchor: LocalDate, span: HistorySpan, delta: Int): LocalDate = w
     HistorySpan.Day -> anchor.plus(DatePeriod(days = delta))
     HistorySpan.Month -> anchor.plus(DatePeriod(months = delta))
     HistorySpan.Year -> anchor.plus(DatePeriod(years = delta))
+}
+
+fun monthLength(year: Int, month: Month): Int {
+    val start = LocalDate(year, month, 1)
+    return start.plus(DatePeriod(months = 1)).minus(DatePeriod(days = 1)).day
+}
+
+/** Round temperature ticks that bracket [min] and [max], in the same units as those values. */
+fun niceTicks(min: Double, max: Double): List<Double> {
+    val low = min.coerceAtMost(max)
+    val high = max.coerceAtLeast(min)
+    val padded = if (high - low < 1.0) {
+        val mid = (low + high) / 2.0
+        mid - 2.0 to mid + 2.0
+    } else {
+        low to high
+    }
+    val step = niceStep((padded.second - padded.first) / 4.0)
+    val start = floor(padded.first / step) * step
+    val end = ceil(padded.second / step) * step
+    val ticks = ArrayList<Double>()
+    var value = start
+    var guard = 0
+    while (value <= end + step * 0.001 && guard < 8) {
+        ticks += snapTick(value)
+        value += step
+        guard++
+    }
+    if (ticks.size < 2) return listOf(snapTick(start), snapTick(start + step))
+    return ticks
+}
+
+private fun niceStep(raw: Double): Double {
+    val size = raw.coerceAtLeast(1.0)
+    val exponent = floor(log10(size))
+    val magnitude = 10.0.pow(exponent)
+    val fraction = size / magnitude
+    val nice = when {
+        fraction <= 1.0 -> 1.0
+        fraction <= 2.0 -> 2.0
+        fraction <= 5.0 -> 5.0
+        else -> 10.0
+    }
+    return nice * magnitude
+}
+
+private fun snapTick(value: Double): Double {
+    val whole = round(value)
+    return if (kotlin.math.abs(value - whole) < 0.01) whole else value
+}
+
+/** Day-of-month labels that stay readable: 1, 10, 20, and 30 when those days are present. */
+fun shownDayNumbers(days: List<Int>): Set<Int> {
+    val present = days.toSet()
+    val marks = listOf(1, 10, 20, 30).filter { it in present }
+    if (marks.isNotEmpty()) return marks.toSet()
+    return listOfNotNull(days.firstOrNull(), days.lastOrNull()).toSet()
+}
+
+fun shownHourMarks(hours: List<Int>): Set<Int> {
+    val marks = hours.filter { it % 6 == 0 }.toSet()
+    if (marks.isNotEmpty()) return marks
+    return listOfNotNull(hours.firstOrNull(), hours.lastOrNull()).toSet()
 }

@@ -94,7 +94,7 @@ fun ForecastPager(app: CumulusApp, state: AppUiState, sky: Sky, modifier: Modifi
         userScrollEnabled = places.size > 1,
     ) { page ->
         val place = places[page]
-        ForecastPage(app, place, state.weather[place.id], state.units, state.dailyDays, sky)
+        ForecastPage(app, place, state.weather[place.id], state.units, sky)
     }
 }
 
@@ -119,7 +119,6 @@ private fun ForecastPage(
     place: SavedPlace,
     resource: WeatherResource?,
     units: UnitPrefs,
-    dailyDays: Int,
     sky: Sky,
 ) {
     val weather = resource?.value
@@ -139,7 +138,7 @@ private fun ForecastPage(
     val upcoming = weather.hourly.filter { hour ->
         hour.time.date > today || (hour.time.date == today && hour.time.hour >= weather.current.time.hour)
     }.ifEmpty { weather.hourly }.take(24)
-    val days = weather.daily.take(dailyDays)
+    val days = weather.daily
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         item { Hero(place, weather, units, sky) }
         if (resource.error != null) {
@@ -162,15 +161,7 @@ private fun ForecastPage(
         item { Spacer(Modifier.height(12.dp)) }
         item {
             GlassCard(sky) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    SectionLabel("Daily", sky)
-                    PillRow(
-                        options = listOf("7 day", "14 day"),
-                        selected = if (dailyDays > 7) 1 else 0,
-                        sky = sky,
-                        onSelect = { app.setDailyDays(if (it == 0) 7 else 14) },
-                    )
-                }
+                SectionLabel("Daily", sky)
                 Spacer(Modifier.height(8.dp))
                 val scaleMin = days.mapNotNull { it.tempMinC }.minOrNull() ?: 0.0
                 val scaleMax = days.mapNotNull { it.tempMaxC }.maxOrNull() ?: 1.0
